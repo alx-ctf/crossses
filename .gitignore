@@ -1,8 +1,22 @@
+# Build
 **/bin/
 **/obj/
 **/.vs/
 *.user
+.idea/
+
+# Database (local)
 *.db
 *.db-shm
 *.db-wal
-.idea/
+
+# Docs, reports, guides (not needed to run code)
+**/*.docx
+**/*.md
+**/*.txt
+**/build-report.ps1
+
+# Office / Word temp
+~$*
+~WRL*
+*.tmp
