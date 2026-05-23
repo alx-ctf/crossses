@@ -1,0 +1,64 @@
+ПРАКТИЧЕСКАЯ РАБОТА №2
+Entity Framework Core (Code First)
+
+Студент: Кобец Кирилл
+Вариант: 2
+
+---SECTION:GOAL---
+1. Цель работы
+---
+Создать модель данных предметной области с использованием Entity Framework Core (подход Code First), реализовать DbContext, выполнить миграции и сформировать базу данных SQLite.
+
+---SECTION:DOMAIN---
+2. Предметная область
+---
+Выбрана предметная область «Блог»: публикация записей (сущность BlogPost) и комментарии пользователей (сущность Comment). Связь один-ко-многим: у одной записи блога может быть несколько комментариев.
+
+---SECTION:DONE---
+3. Что сделано
+---
+• Описаны две сущности на языке C#: BlogPost и Comment.
+• Применены Data Annotations: [Key], [Required], [StringLength], [Column], [Table], [NotMapped] (свойство Preview не сохраняется в БД).
+• Настроен Fluent API в методе OnModelCreating: связь 1:N, уникальный индекс по полю Slug, индекс по PostId, ограничения длины строк, каскадное удаление комментариев при удалении записи.
+• Создан класс BlogDbContext, наследник DbContext, со свойствами DbSet<BlogPost> и DbSet<Comment>.
+• Строка подключения к SQLite задаётся в OnConfiguring; файл базы blog_variant2.db создаётся в каталоге проекта рядом с Program.cs (класс DbPath).
+• Создана и применена миграция InitialCreate; при первом запуске добавляются демонстрационные данные (автор комментария: Кобец Кирилл).
+• Расположение проекта: G:\unik\cross\2\BlogEfCore
+
+---SECTION:CONSTRAINTS---
+4. Ограничения модели
+---
+• Первичные ключи: Id в таблицах posts и comments.
+• Обязательные поля: Title, Slug, AuthorName, Text.
+• Уникальный индекс IX_posts_slug_unique на столбце slug.
+• Внешний ключ post_id в comments с каскадным удалением.
+
+---SECTION:COMMANDS:CODE---
+5. Команды миграций
+---
+cd G:\unik\cross\2\BlogEfCore
+dotnet ef migrations add InitialCreate
+dotnet ef database update
+dotnet run
+
+---SECTION:DB:CODE---
+6. Структура базы данных
+---
+Таблица posts: Id, title, slug, body, published_at
+Уникальный индекс: IX_posts_slug_unique (slug)
+Таблица comments: Id, author_name, text, created_at, post_id
+Внешний ключ: FK_comments_posts_post_id (CASCADE)
+Индекс: IX_comments_post_id
+Файл БД: BlogEfCore\blog_variant2.db (рядом с Program.cs)
+
+---SECTION:CRITERIA---
+7. Соответствие критериям оценки
+---
+1) Модель данных, Data Annotations + Fluent API, уникальный индекс — выполнено (4 балла).
+2) DbContext, миграция создана и применена, БД без ошибок — выполнено (3 балла).
+3) Две связанные сущности 1:N через Fluent API — выполнено (1 балл, бонус).
+
+---SECTION:SOURCE---
+8. Исходный код проекта
+---
+Ниже приведён полный код всех файлов решения.
