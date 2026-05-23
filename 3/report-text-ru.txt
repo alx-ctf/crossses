@@ -1,0 +1,240 @@
+ПРАКТИЧЕСКАЯ РАБОТА №3
+Разработка веб-приложения на ASP.NET Core (Minimal API)
+
+Студент: Кобец Кирилл
+Вариант: 2
+Репозиторий: https://github.com/alx-ctf/crossses (папка 3)
+
+================================================================================
+1. ЦЕЛЬ РАБОТЫ
+================================================================================
+Разработать веб-приложение на ASP.NET Core (Minimal API), которое при обращении
+к HTTP-endpoint возвращает данные из базы данных в формате JSON. Приложение
+должно использовать Entity Framework Core, конфигурацию через appsettings.json,
+внедрение зависимостей (DI) и собственный сервис обработки данных.
+
+Предметная область и модель данных совпадают с практической работой №2 (блог:
+записи BlogPost и комментарии Comment, SQLite).
+
+================================================================================
+2. СТРУКТУРА ПРОЕКТА
+================================================================================
+3/
+  Pz3.sln                    — решение Visual Studio / dotnet
+  README.md                  — краткая инструкция по запуску
+  report-text-ru.txt         — данный отчёт
+  .gitignore                 — исключения bin/, obj/, *.db
+  BlogApi/
+    BlogApi.csproj           — файл проекта (Web SDK)
+    Program.cs               — точка входа, регистрация DI, маршруты API
+    appsettings.json         — строка подключения и пользовательские настройки
+    appsettings.Development.json — переопределение настроек для среды Development
+    Properties/launchSettings.json — URL http://localhost:5197
+    Configuration/AppSettings.cs
+    Models/BlogPost.cs, Comment.cs
+    Data/BlogDbContext.cs, BlogDbContextFactory.cs, DbInitializer.cs
+    Services/IDataService.cs, BlogDataService.cs
+    Dtos/DataResponseDto.cs, PostItemDto.cs, ConfigResponseDto.cs
+    Migrations/                — миграция EF Core InitialCreate
+
+================================================================================
+3. ЗАВИСИМОСТИ (NuGet И ПЛАТФОРМА)
+================================================================================
+Целевая платформа: .NET 10.0 (net10.0)
+Тип проекта: Microsoft.NET.Sdk.Web (веб-приложение с Kestrel)
+
+Пакеты NuGet:
+  • Microsoft.EntityFrameworkCore 10.0.7
+      — ORM, DbContext, LINQ-запросы, миграции.
+  • Microsoft.EntityFrameworkCore.Sqlite 10.0.7
+      — провайдер SQLite для хранения blog_variant2.db.
+  • Microsoft.EntityFrameworkCore.Design 10.0.7 (PrivateAssets)
+      — инструменты dotnet ef (создание миграций на этапе разработки).
+
+Встроенные в ASP.NET Core (транзитивно через Web SDK):
+  • Microsoft.AspNetCore.* — хостинг, Minimal API (MapGet), JSON-сериализация.
+  • Microsoft.Extensions.Configuration.* — чтение appsettings.json.
+  • Microsoft.Extensions.DependencyInjection.* — контейнер DI.
+  • Microsoft.Extensions.Options — привязка секции AppSettings к классу AppSettings.
+
+Файл базы данных: BlogApi/blog_variant2.db (создаётся при первом запуске).
+
+================================================================================
+4. КОНФИГУРАЦИЯ (appsettings.json)
+================================================================================
+Секция ConnectionStrings:
+  "BlogDb": "Data Source=blog_variant2.db"
+  Чтение в Program.cs: builder.Configuration.GetConnectionString("BlogDb")
+
+Секция AppSettings (пользовательские настройки, ≥1 как требует задание):
+  AppName  — отображаемое имя API (в ответе /api/data и /api/config)
+  Version  — версия приложения (поле appVersion в JSON)
+  MaxItems — максимум записей блога, возвращаемых сервисом (Take в LINQ)
+
+Переопределение в appsettings.Development.json:
+  AppName = "Blog API (Development)", Version = "1.0-dev", MaxItems = 5
+
+Способы доступа к настройкам в коде:
+  • IConfiguration.GetConnectionString("BlogDb")
+  • IConfiguration.GetSection("AppSettings")["AppName"]
+  • IOptions<AppSettings> через Configure<AppSettings>() — в BlogDataService
+
+================================================================================
+5. DEPENDENCY INJECTION (РЕГИСТРАЦИЯ СЕРВИСОВ)
+================================================================================
+В Program.cs (WebApplicationBuilder builder):
+
+  builder.Services.Configure<AppSettings>(
+      builder.Configuration.GetSection("AppSettings"));
+      — привязка секции JSON к классу AppSettings (паттерн Options).
+
+  builder.Services.AddDbContext<BlogDbContext>(options =>
+      options.UseSqlite(connectionString));
+      — контекст EF Core, время жизни Scoped (по умолчанию для DbContext).
+
+  builder.Services.AddScoped<IDataService, BlogDataService>();
+      — собственный сервис: интерфейс IDataService, реализация BlogDataService,
+        время жизни Scoped (один экземпляр на HTTP-запрос).
+
+Внедрение в обработчики Minimal API:
+  • MapGet("/api/data", async (IDataService dataService, CancellationToken ct) => ...)
+      — IDataService передаётся параметром метода (рекомендуемый способ для Minimal API).
+  • MapGet("/api/config", (IConfiguration configuration) => ...)
+      — IConfiguration внедряется автоматически контейнером.
+
+При старте приложения создаётся scope, применяются миграции и сидинг:
+  using (var scope = app.Services.CreateScope()) { ... MigrateAsync(); SeedAsync(); }
+
+================================================================================
+6. ОПИСАНИЕ КЛАССОВ И МЕТОДОВ
+================================================================================
+
+--- Program.cs ---
+Точка входа приложения (top-level statements).
+  • WebApplication.CreateBuilder(args) — создание хоста и конфигурации.
+  • Регистрация сервисов (см. раздел 5).
+  • WebApplication.Build() — построение конвейера middleware.
+  • Блок MigrateAsync + DbInitializer.SeedAsync — подготовка БД.
+  • MapGet("/api/data", ...) — GET, возвращает Results.Ok(DataResponseDto).
+  • MapGet("/api/config", ...) — GET, возвращает ConfigResponseDto из IConfiguration.
+  • MapGet("/", ...) — перенаправление на /api/data.
+  • app.Run() — запуск Kestrel.
+
+--- Configuration/AppSettings.cs ---
+POCO-класс для секции AppSettings.
+  Свойства: AppName (string), Version (string), MaxItems (int).
+  Используется с IOptions<AppSettings> в BlogDataService.
+
+--- Models/BlogPost.cs ---
+Сущность «запись блога» (таблица posts).
+  Id — первичный ключ ([Key]).
+  Title, Slug, Body, PublishedAt — поля с Data Annotations и [Column].
+  Comments — навигационное свойство ICollection<Comment> (связь 1:N).
+  Preview — вычисляемое свойство [NotMapped], не сохраняется в БД.
+
+--- Models/Comment.cs ---
+Сущность «комментарий» (таблица comments).
+  Id — первичный ключ.
+  AuthorName, Text, CreatedAt, PostId — столбцы БД.
+  Post — навигация к BlogPost.
+
+--- Data/BlogDbContext.cs ---
+Контекст данных EF Core, наследник DbContext.
+  Конструктор BlogDbContext(DbContextOptions<BlogDbContext> options) — приём опций из DI.
+  Posts, Comments — свойства DbSet<T> для таблиц.
+  OnModelCreating — Fluent API: уникальный индекс по Slug, связь 1:N, каскадное удаление,
+    ограничения длины строк (как в практической №2).
+
+--- Data/BlogDbContextFactory.cs ---
+IDesignTimeDbContextFactory<BlogDbContext> для команды dotnet ef.
+  CreateDbContext — читает appsettings.json, строит DbContextOptions с SQLite.
+
+--- Data/DbInitializer.cs ---
+Статический класс инициализации тестовых данных.
+  SeedAsync(BlogDbContext db, CancellationToken) — если таблица posts пуста, добавляет
+    3 записи BlogPost (требование «минимум 3 записи») с комментариями; автор «Кобец Кирилл».
+
+--- Services/IDataService.cs ---
+Интерфейс собственного сервиса (требование задания).
+  GetDataAsync(CancellationToken) — Task<DataResponseDto>.
+
+--- Services/BlogDataService.cs ---
+Реализация IDataService (Scoped).
+  Поля: BlogDbContext _db, AppSettings _settings.
+  Конструктор: внедрение BlogDbContext и IOptions<AppSettings>.
+  GetDataAsync:
+    1) CountAsync — общее число постов в БД;
+    2) запрос Posts с Include(Comments), AsNoTracking, OrderByDescending(PublishedAt),
+       Take(MaxItems из конфигурации);
+    3) проекция в PostItemDto (Id, Title, Slug, Preview, PublishedAt, CommentCount);
+    4) формирование DataResponseDto с полями appName, appVersion, processedBy, items.
+
+--- Dtos/PostItemDto.cs ---
+DTO одной записи для JSON-ответа (без лишних полей сущности).
+
+--- Dtos/DataResponseDto.cs ---
+Обёртка ответа /api/data: метаданные приложения + массив items.
+
+--- Dtos/ConfigResponseDto.cs ---
+Ответ /api/config: AppName, Version, MaxItems, ConnectionStringConfigured.
+
+--- Migrations/InitialCreate ---
+Автогенерируемая миграция EF Core: создание таблиц posts и comments, индексов и FK.
+
+================================================================================
+7. HTTP ENDPOINTS
+================================================================================
+
+GET http://localhost:5197/api/data
+  Назначение: получить данные из БД в JSON.
+  Цепочка: MapGet → IDataService.GetDataAsync → BlogDbContext + BlogDataService.
+  Пример полей ответа:
+    appName, appVersion, totalInDatabase, returnedCount, processedBy, items[].
+  Элемент items[]: id, title, slug, preview, publishedAt, commentCount.
+
+GET http://localhost:5197/api/config
+  Назначение: вывести пользовательские настройки из IConfiguration.
+  Поля: appName, version, maxItems, connectionStringConfigured.
+
+GET http://localhost:5197/
+  Перенаправление 302 на /api/data.
+
+================================================================================
+8. СВЯЗЬ С ПРАКТИЧЕСКОЙ РАБОТОЙ №2
+================================================================================
+Используется та же предметная область (блог), те же таблицы posts/comments,
+те же ограничения Fluent API. Файл SQLite может быть общим (blog_variant2.db).
+Отличия ПЗ3: веб-хост ASP.NET Core, конфигурация через appsettings.json,
+DI и Minimal API вместо консольного Program.cs с OnConfiguring в DbContext.
+
+================================================================================
+9. КОМАНДЫ ЗАПУСКА И МИГРАЦИЙ
+================================================================================
+cd 3/BlogApi
+dotnet restore
+dotnet ef database update
+dotnet run
+
+Проверка в браузере или curl:
+  curl http://localhost:5197/api/data
+  curl http://localhost:5197/api/config
+
+================================================================================
+10. СООТВЕТСТВИЕ КРИТЕРИЯМ ОЦЕНКИ (максимум 8 баллов)
+================================================================================
+1) Endpoint'ы: GET /api/data (данные из БД, JSON) + GET /api/config (доп.) — 2+ балла.
+2) Endpoint конфигурации /api/config через IConfiguration — 1 балл.
+3) appsettings.json, ConnectionStrings, AppSettings, GetConnectionString — 2 балла.
+4) IDataService, BlogDataService, AddScoped, внедрение в MapGet — 2 балла.
+5) DbContext, DbSet, AddDbContext, извлечение данных в JSON — 1 балл.
+
+Итого: выполнены все обязательные требования задания №3.
+
+================================================================================
+11. ПРИМЕЧАНИЯ ПО БЕЗОПАСНОСТИ И РАЗВЁРТЫВАНИЮ
+================================================================================
+Строка подключения не содержит секретов (локальный файл SQLite).
+Для production рекомендуется вынести ConnectionStrings в переменные окружения
+или User Secrets; в учебной работе достаточно appsettings.json.
+
+Конец отчёта.
